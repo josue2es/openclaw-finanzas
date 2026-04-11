@@ -12,7 +12,11 @@ from config import (DB_PATH, CLASIFICACION_INGRESO, CLASIFICACION_EGRESO,
 
 
 def _add_months(d, n):
-    """Add n months to date d, clamping day to end of month when needed."""
+    """Add n months to date d, clamping day to end of month when needed.
+
+    Without clamping, adding 1 month to Jan 31 would produce Feb 31 — invalid.
+    calendar.monthrange returns (weekday_of_1st, days_in_month), so [1] gives the cap.
+    """
     month = d.month + n
     year  = d.year + (month - 1) // 12
     month = ((month - 1) % 12) + 1
@@ -23,7 +27,12 @@ def _add_months(d, n):
 @contextmanager
 def _db():
     """Open a DB connection, commit on success, always close, then clear Streamlit cache.
-    On exception the transaction is rolled back (no commit) and cache is not cleared."""
+
+    The cache clear lives OUTSIDE try/finally intentionally: if an exception is raised
+    inside the `with _db()` block the commit is skipped (DB unchanged), so there is
+    nothing stale to evict.  The close() in `finally` ensures no connection leak even
+    when the caller's code raises.
+    """
     conn = sqlite3.connect(str(DB_PATH))
     try:
         yield conn
@@ -34,9 +43,14 @@ def _db():
 
 
 def init_planes_tables():
-    """Create installment-plan tables if they don't exist, and run one-time migrations."""
+    """Create installment-plan tables if they don't exist, and run one-time migrations.
+
+    Called on every app start (cheap: SQLite no-ops the CREATE IF NOT EXISTS).
+    Migrations use a try/except instead of IF NOT EXISTS because ALTER TABLE and
+    DROP COLUMN have no conditional syntax in SQLite — the OperationalError signals
+    that the migration was already applied in a prior run, so we silently skip it.
+    """
     conn = sqlite3.connect(str(DB_PATH))
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS planes_pago (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre        TEXT    NOT NULL,
@@ -80,7 +94,13 @@ def init_planes_tables():
 def crear_plan(nombre, monto_total, num_cuotas, monto_cuota,
                fecha_inicio, tipo_abono_id, categoria_id, clasificacion, quien,
                tipo=TIPO_PLAZO_FIJO, auto_pago=False):
-    """Insert plan + generate all cuotas. Recurrente plans get only the first payment."""
+    """Insert plan + generate all cuotas. Recurrente plans get only the first payment.
+
+    For plazo_fijo plans, all N cuotas are inserted up-front via executemany (one round-trip).
+    For recurrente plans, only the first cuota is inserted — each subsequent one is created
+    in marcar_cuota_pagada() when the previous payment is registered, so the plan stays
+    perpetual without pre-generating an unbounded future row list.
+    """
     with _db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -153,7 +173,15 @@ def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
                          fecha_pago, fecha_programada,
                          categoria_id, tipo_abono_id, clasificacion, quien):
     """Create a transaction for the payment and link it back.
-    For recurrente plans, auto-generates the next monthly payment."""
+
+    Signs the monto based on clasificacion: income plans (e.g. "Ingreso Recurrente")
+    record a positive amount; expense plans record negative.  The cuota row is then
+    stamped with the actual payment date and the new transaction's ID so we can trace
+    back from the plan to the exact transaction that paid it.
+
+    For recurrente plans, after marking the cuota paid the next month's cuota is
+    inserted here — keeping exactly one pending row alive per active recurrente plan.
+    """
     if plan_tipo == TIPO_RECURRENTE:
         descripcion = f"{plan_nombre} · {str(fecha_pago)[:7]}"
     else:
@@ -196,7 +224,7 @@ def actualizar_plan_campos(plan_id, monto_cuota, tipo_abono_id, categoria_id, cl
 
 
 @st.cache_data
-def cargar_datos(db_mtime):  # db_mtime passed solely to bust cache when the file changes
+def cargar_datos(db_mtime):  # db_mtime is the file's mtime — Streamlit re-runs the function only when it changes, busting stale cache after any write
     conn = sqlite3.connect(str(DB_PATH))
     transacciones = pd.read_sql("""
         SELECT

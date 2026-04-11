@@ -38,8 +38,11 @@ def main():
         st.error(f"Base de datos no encontrada: `{DB_PATH}`")
         st.stop()
 
+    # Ensure planes_pago / cuotas_pago tables exist and all migrations are applied.
     init_planes_tables()
 
+    # Pass mtime as a cache key: cargar_datos is @st.cache_data, so Streamlit only
+    # re-queries SQLite when the file was modified since the last call.
     db_mtime = os.path.getmtime(DB_PATH)
     df_todas, ahorros = cargar_datos(db_mtime)
     periodos, quien, tipo = sidebar_filtros(df_todas)

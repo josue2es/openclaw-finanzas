@@ -11,6 +11,14 @@ logging.basicConfig(
 
 
 def _get_client_ip() -> str:
+    """Extract the real client IP from request headers for fail2ban logging.
+
+    Priority: X-Forwarded-For (nginx/proxy sets this) → X-Real-Ip (alternative proxy header)
+    → "unknown" (direct Streamlit without a reverse proxy).
+    X-Forwarded-For can contain a comma-separated chain when there are multiple proxies;
+    we take the first entry, which is the original client.
+    The outer try/except guards against Streamlit versions where st.context is unavailable.
+    """
     try:
         headers = st.context.headers
         return (headers.get("X-Forwarded-For") or headers.get("X-Real-Ip") or "unknown").split(",")[0].strip()

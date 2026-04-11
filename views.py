@@ -41,7 +41,8 @@ def mostrar_kpis(df, ahorros, df_todas=None):
     balance        = df_cash["monto"].sum()
     card_balance   = df_card["monto"].sum()
 
-    # Compute previous-period deltas (only when a single month is selected)
+    # Deltas are only meaningful against a single reference month; when the user has
+    # multiple months selected there is no clear "prior period" to compare against.
     delta_ingresos = delta_egresos = delta_balance = delta_card = None
     if df_todas is not None and not df.empty:
         periodos_sel = sorted(df["mes_año"].dropna().unique())
@@ -92,6 +93,9 @@ def _form_transaccion(key, categorias, tipos_abono, defaults=None):
     tipo_abono_nombre = st.selectbox("Método de pago", abono_nombres, index=abono_idx, key=f"abono_{key}")
     quien = st.text_input("Quién", value=d.get("quien", ""), key=f"quien_{key}")
 
+    # The user always enters a positive amount; we apply the sign here based on
+    # classification so the DB contract (negative = expense, positive = income) is
+    # enforced in one place rather than scattered across callers.
     monto = abs(monto_raw) if clasificacion in _CLASIFICACION_POSITIVA else -abs(monto_raw)
     return str(fecha), descripcion, monto, clasificacion, _lookup_id(categorias, categoria_nombre), _lookup_id(tipos_abono, tipo_abono_nombre), quien
 
@@ -201,7 +205,8 @@ def tabla_transacciones(df_full, df):
                 "metodo_pago":   row["metodo_pago"],
                 "quien":         row["quien"],
             }
-            # Key includes row_id so widgets are recreated fresh on each selection change
+            # Embedding row_id in the form key forces Streamlit to unmount and remount
+            # all widgets when a different transaction is selected, clearing stale values.
             with st.form(f"form_editar_{row_id}"):
                 fecha, descripcion, monto, clasificacion, categoria_id, tipo_abono_id, quien = \
                     _form_transaccion(f"edit_{row_id}", categorias, tipos_abono, defaults)
@@ -349,7 +354,10 @@ def seccion_recurrentes():
             }
             sel = st.selectbox("Pago a registrar", list(opciones.keys()), key="reg_sel")
             r   = opciones[sel]
-            ck  = str(int(r["id"]))  # unique key per cuota — resets widgets on selection change
+            # Using the cuota ID as a widget key suffix forces Streamlit to create fresh
+            # widgets (with the new cuota's defaults) whenever the user picks a different
+            # payment from the dropdown, rather than keeping the previous cuota's values.
+            ck  = str(int(r["id"]))
 
             cat_nombres   = categorias["nombre"].tolist()
             abono_nombres = tipos_abono["nombre"].tolist()

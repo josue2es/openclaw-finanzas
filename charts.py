@@ -7,10 +7,13 @@ from config import COLORS, CHART_LAYOUT, CHART_LAYOUT_PIE, CLASIFICACION_INGRESO
 
 # 1 - Egresos por Tipo de Pago y Categoría
 def grafica_metodo_pago(df):
+    # The double filter (clasificacion + monto < 0) is intentional: "Ajuste de Gastos"
+    # rows can appear in CLASIFICACION_EGRESO but sometimes carry positive amounts (reversals).
+    # Requiring monto < 0 ensures only actual outflows are charted.
     egresos = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)].copy()
     egresos["monto"] = egresos["monto"].abs()
 
-    # Order methods by total descending (bottom = highest on horizontal bar)
+    # Sort ascending so that Plotly (bottom-to-top) renders the largest bar at the top
     totals = egresos.groupby("metodo_pago")["monto"].sum().sort_values(ascending=True)
     orden  = totals.index.tolist()
 
@@ -25,6 +28,8 @@ def grafica_metodo_pago(df):
     )
     fig.update_layout(**CHART_LAYOUT)
     fig.update_traces(marker_line_width=0)
+    # Plotly stacked bars don't show a grand total automatically — add one annotation
+    # per bar at its right edge so the reader sees the full spend per payment method.
     for metodo, total in totals.items():
         fig.add_annotation(
             x=total, y=metodo,
@@ -94,6 +99,8 @@ def grafica_egresos_por_categoria(df):
 def grafica_tendencia_mensual(df):
     ing = df[df["clasificacion"].isin(CLASIFICACION_INGRESO)].groupby("mes_año")["monto"].sum().rename("ingreso")
     gas = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)].groupby("mes_año")["monto"].sum().abs().rename("egreso")
+    # concat on axis=1 aligns by mes_año index; fillna(0) handles months that have
+    # only income or only expenses so subtraction doesn't produce NaN.
     mensual = pd.concat([ing, gas], axis=1).fillna(0).reset_index()
     if mensual.empty:
         return None
