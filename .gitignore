@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.streamlit/secrets.toml
+finanzas.db
+*.db
+*.log
