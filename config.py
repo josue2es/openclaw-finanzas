@@ -5,7 +5,7 @@ DB_PATH = Path("/home/josue2es/.openclaw/workspace/finanzas.db")
 # ── Transaction classifications ───────────────────────────────────────────────
 CLASIFICACION_INGRESO = ["Ingreso Recurrente", "Ingreso", "Ajuste de Ingresos"]
 CLASIFICACION_EGRESO  = ["Gasto Recurrente", "Gasto", "Ajuste de Gastos"]
-CLASIFICACION_AJUSTE  = ["Ajuste de Gastos", "Ajuste de Ingresos"]
+CLASIFICACION_AJUSTE  = [c for c in CLASIFICACION_EGRESO + CLASIFICACION_INGRESO if "Ajuste" in c]
 
 # ── Plan types (match values stored in DB) ────────────────────────────────────
 TIPO_RECURRENTE = "recurrente"
@@ -13,6 +13,10 @@ TIPO_PLAZO_FIJO = "plazo_fijo"
 
 # ── Sidebar filter options ────────────────────────────────────────────────────
 TIPO_OPCIONES = ["Todos", "Ingresos", "Gastos", "Ajuste"]
+
+# ── Transaction classification option lists (used in forms) ───────────────────
+CLASIFICACIONES = ["Gasto", "Ingreso", "Ajuste de Gastos", "Ajuste de Ingresos"]
+CLASIFICACIONES_RECURRENTES = ["Gasto Recurrente", "Ingreso Recurrente"]
 
 # ── Payment methods counted as cash (not credit card) ─────────────────────────
 METODOS_EFECTIVO = {"Efectivo", "Histórico/Efectivo"}

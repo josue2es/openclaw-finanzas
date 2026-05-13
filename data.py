@@ -42,6 +42,15 @@ def _db():
     st.cache_data.clear()
 
 
+@contextmanager
+def _db_read():
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def init_planes_tables():
     """Create installment-plan tables if they don't exist, and run one-time migrations.
 
@@ -128,44 +137,40 @@ def crear_plan(nombre, monto_total, num_cuotas, monto_cuota,
 
 @st.cache_data
 def cargar_planes():
-    conn   = sqlite3.connect(str(DB_PATH))
-    planes = pd.read_sql("""
-        SELECT p.*,
-               ta.nombre AS metodo_pago,
-               c.nombre  AS categoria,
-               COUNT(CASE WHEN cu.fecha_pago IS NOT NULL THEN 1 END) AS cuotas_pagadas,
-               MIN(CASE WHEN cu.fecha_pago IS NULL THEN cu.fecha_programada END) AS proxima_cuota
-        FROM planes_pago p
-        LEFT JOIN tipos_abono  ta ON p.tipo_abono_id = ta.id
-        LEFT JOIN categorias    c ON p.categoria_id  = c.id
-        LEFT JOIN cuotas_pago  cu ON cu.plan_id      = p.id
-        GROUP BY p.id
-        ORDER BY p.activo DESC, p.fecha_inicio
-    """, conn)
-    conn.close()
-    return planes
+    with _db_read() as conn:
+        return pd.read_sql("""
+            SELECT p.*,
+                   ta.nombre AS metodo_pago,
+                   c.nombre  AS categoria,
+                   COUNT(CASE WHEN cu.fecha_pago IS NOT NULL THEN 1 END) AS cuotas_pagadas,
+                   MIN(CASE WHEN cu.fecha_pago IS NULL THEN cu.fecha_programada END) AS proxima_cuota
+            FROM planes_pago p
+            LEFT JOIN tipos_abono  ta ON p.tipo_abono_id = ta.id
+            LEFT JOIN categorias    c ON p.categoria_id  = c.id
+            LEFT JOIN cuotas_pago  cu ON cu.plan_id      = p.id
+            GROUP BY p.id
+            ORDER BY p.activo DESC, p.fecha_inicio
+        """, conn)
 
 
 @st.cache_data
 def cargar_cuotas():
     """Return all unpaid cuotas from active plans, enriched with plan fields."""
-    conn   = sqlite3.connect(str(DB_PATH))
-    cuotas = pd.read_sql("""
-        SELECT cu.id, cu.plan_id, cu.num_cuota, cu.fecha_programada,
-               p.nombre AS plan_nombre, p.monto_cuota, p.num_cuotas,
-               p.categoria_id, p.tipo_abono_id, p.clasificacion, p.quien,
-               p.tipo,
-               ta.nombre AS metodo_pago,
-               c.nombre  AS categoria
-        FROM cuotas_pago cu
-        JOIN  planes_pago  p  ON cu.plan_id       = p.id
-        LEFT JOIN tipos_abono ta ON p.tipo_abono_id = ta.id
-        LEFT JOIN categorias   c ON p.categoria_id  = c.id
-        WHERE cu.fecha_pago IS NULL AND p.activo = 1
-        ORDER BY cu.fecha_programada
-    """, conn)
-    conn.close()
-    return cuotas
+    with _db_read() as conn:
+        return pd.read_sql("""
+            SELECT cu.id, cu.plan_id, cu.num_cuota, cu.fecha_programada,
+                   p.nombre AS plan_nombre, p.monto_cuota, p.num_cuotas,
+                   p.categoria_id, p.tipo_abono_id, p.clasificacion, p.quien,
+                   p.tipo,
+                   ta.nombre AS metodo_pago,
+                   c.nombre  AS categoria
+            FROM cuotas_pago cu
+            JOIN  planes_pago  p  ON cu.plan_id       = p.id
+            LEFT JOIN tipos_abono ta ON p.tipo_abono_id = ta.id
+            LEFT JOIN categorias   c ON p.categoria_id  = c.id
+            WHERE cu.fecha_pago IS NULL AND p.activo = 1
+            ORDER BY cu.fecha_programada
+        """, conn)
 
 
 def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
@@ -225,20 +230,19 @@ def actualizar_plan_campos(plan_id, monto_cuota, tipo_abono_id, categoria_id, cl
 
 @st.cache_data
 def cargar_datos(db_mtime):  # db_mtime is the file's mtime — Streamlit re-runs the function only when it changes, busting stale cache after any write
-    conn = sqlite3.connect(str(DB_PATH))
-    transacciones = pd.read_sql("""
-        SELECT
-            t.id, t.fecha, t.monto, t.clasificacion,
-            t.descripcion, t.quien,
-            c.nombre  AS categoria,
-            ta.nombre AS metodo_pago,
-            ta.tipo   AS tipo_pago
-        FROM transacciones t
-        LEFT JOIN categorias  c  ON t.categoria_id  = c.id
-        LEFT JOIN tipos_abono ta ON t.tipo_abono_id = ta.id
-    """, conn)
-    ahorros = pd.read_sql("SELECT * FROM ahorros", conn)
-    conn.close()
+    with _db_read() as conn:
+        transacciones = pd.read_sql("""
+            SELECT
+                t.id, t.fecha, t.monto, t.clasificacion,
+                t.descripcion, t.quien,
+                c.nombre  AS categoria,
+                ta.nombre AS metodo_pago,
+                ta.tipo   AS tipo_pago
+            FROM transacciones t
+            LEFT JOIN categorias  c  ON t.categoria_id  = c.id
+            LEFT JOIN tipos_abono ta ON t.tipo_abono_id = ta.id
+        """, conn)
+        ahorros = pd.read_sql("SELECT * FROM ahorros", conn)
 
     transacciones["fecha"]   = pd.to_datetime(transacciones["fecha"], errors="coerce")
     transacciones["mes_año"] = transacciones["fecha"].dt.to_period("M").astype(str)
@@ -292,10 +296,9 @@ def sidebar_filtros(df):
 
 @st.cache_data(ttl=300)
 def cargar_catalogos():
-    conn = sqlite3.connect(str(DB_PATH))
-    categorias  = pd.read_sql("SELECT id, nombre FROM categorias ORDER BY nombre", conn)
-    tipos_abono = pd.read_sql("SELECT id, nombre FROM tipos_abono ORDER BY nombre", conn)
-    conn.close()
+    with _db_read() as conn:
+        categorias  = pd.read_sql("SELECT id, nombre FROM categorias ORDER BY nombre", conn)
+        tipos_abono = pd.read_sql("SELECT id, nombre FROM tipos_abono ORDER BY nombre", conn)
     return categorias, tipos_abono
 
 

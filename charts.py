@@ -5,12 +5,13 @@ import plotly.graph_objects as go
 from config import COLORS, CHART_LAYOUT, CHART_LAYOUT_PIE, CLASIFICACION_INGRESO, CLASIFICACION_EGRESO
 
 
+def _egresos(df):
+    return df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)]
+
+
 # 1 - Egresos por Tipo de Pago y Categoría
 def grafica_metodo_pago(df):
-    # The double filter (clasificacion + monto < 0) is intentional: "Ajuste de Gastos"
-    # rows can appear in CLASIFICACION_EGRESO but sometimes carry positive amounts (reversals).
-    # Requiring monto < 0 ensures only actual outflows are charted.
-    egresos = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)].copy()
+    egresos = _egresos(df).copy()
     egresos["monto"] = egresos["monto"].abs()
 
     # Sort ascending so that Plotly (bottom-to-top) renders the largest bar at the top
@@ -64,7 +65,7 @@ def grafica_metodo_pago_tipo(df):
 def grafica_ingresos_vs_egresos(df):
     ing = df[df["clasificacion"].isin(CLASIFICACION_INGRESO)].groupby("mes_año")["monto"].sum().reset_index()
     ing["tipo"] = "Ingresos"
-    gas = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)].groupby("mes_año")["monto"].sum().abs().reset_index()
+    gas = _egresos(df).groupby("mes_año")["monto"].sum().abs().reset_index()
     gas["tipo"] = "Gastos"
     resumen = pd.concat([ing, gas])
     fig = px.bar(
@@ -82,8 +83,7 @@ def grafica_ingresos_vs_egresos(df):
 
 # 4 - Egresos por Categoría
 def grafica_egresos_por_categoria(df):
-    egresos = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)]
-    por_cat = egresos.groupby("categoria")["monto"].sum().abs().reset_index()
+    por_cat = _egresos(df).groupby("categoria")["monto"].sum().abs().reset_index()
     fig = px.pie(
         por_cat, values="monto", names="categoria",
         title="4 - Egresos por Categoría",
@@ -98,9 +98,7 @@ def grafica_egresos_por_categoria(df):
 # 5 - Balance Neto Mensual
 def grafica_tendencia_mensual(df):
     ing = df[df["clasificacion"].isin(CLASIFICACION_INGRESO)].groupby("mes_año")["monto"].sum().rename("ingreso")
-    gas = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)].groupby("mes_año")["monto"].sum().abs().rename("egreso")
-    # concat on axis=1 aligns by mes_año index; fillna(0) handles months that have
-    # only income or only expenses so subtraction doesn't produce NaN.
+    gas = _egresos(df).groupby("mes_año")["monto"].sum().abs().rename("egreso")
     mensual = pd.concat([ing, gas], axis=1).fillna(0).reset_index()
     if mensual.empty:
         return None
@@ -127,9 +125,8 @@ def grafica_tendencia_mensual(df):
 
 # 6 - Top Categorías de Gasto
 def grafica_top_categorias(df):
-    egresos = df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)]
     top = (
-        egresos.groupby("categoria")["monto"]
+        _egresos(df).groupby("categoria")["monto"]
         .sum().abs().sort_values(ascending=False).head(8).reset_index()
     )
     fig = px.bar(
@@ -139,8 +136,8 @@ def grafica_top_categorias(df):
         color="monto",
         color_continuous_scale=[[0, "#7f1d1d"], [1, COLORS["egreso"]]],
     )
-    fig.update_layout(**CHART_LAYOUT, coloraxis_showscale=False)
-    fig.update_layout(yaxis=dict(categoryorder="total ascending", gridcolor=COLORS["border"]))
+    fig.update_layout(**CHART_LAYOUT, coloraxis_showscale=False,
+                      yaxis=dict(categoryorder="total ascending", gridcolor=COLORS["border"]))
     fig.update_traces(marker_line_width=0,
                       text=top["monto"], texttemplate="$%{x:,.0f}",
                       textposition="outside")

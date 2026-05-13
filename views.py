@@ -5,15 +5,12 @@ import plotly.express as px
 import streamlit as st
 
 from config import (CHART_LAYOUT, CHART_LAYOUT_PIE, CLASIFICACION_INGRESO, CLASIFICACION_EGRESO,
-                    METODOS_EFECTIVO, TIPO_RECURRENTE, TIPO_PLAZO_FIJO)
+                    METODOS_EFECTIVO, TIPO_RECURRENTE, TIPO_PLAZO_FIJO,
+                    CLASIFICACIONES, CLASIFICACIONES_RECURRENTES)
 from data import (cargar_catalogos, agregar_transaccion, actualizar_transaccion,
                   eliminar_transacciones, cargar_planes, cargar_cuotas,
                   crear_plan, marcar_cuota_pagada, cancelar_plan, actualizar_plan_campos)
 
-CLASIFICACIONES           = ["Gasto", "Ingreso", "Ajuste de Gastos", "Ajuste de Ingresos"]
-CLASIFICACIONES_RECURRENTES = ["Gasto Recurrente", "Ingreso Recurrente"]
-
-# Income classifications that produce a positive monto when entered
 _CLASIFICACION_POSITIVA = set(CLASIFICACION_INGRESO)
 
 # Columns searched by the free-text filter in the transactions table
@@ -23,6 +20,10 @@ _SEARCH_COLS = ["descripcion", "categoria", "metodo_pago", "quien", "clasificaci
 def _lookup_id(df, nombre):
     """Return the integer ID for the row where df['nombre'] == nombre."""
     return int(df.loc[df["nombre"] == nombre, "id"].iloc[0])
+
+
+def _tx_label(row):
+    return f"{row['id']} · {str(row['fecha'])[:10]} · {row['descripcion']}"
 
 
 def _pago_label(r):
@@ -49,7 +50,7 @@ def mostrar_kpis(df, ahorros, df_todas=None):
         if len(periodos_sel) == 1:
             periodo_actual = periodos_sel[0]
             all_periodos   = sorted(df_todas["mes_año"].dropna().unique())
-            idx = list(all_periodos).index(periodo_actual) if periodo_actual in all_periodos else -1
+            idx = all_periodos.index(periodo_actual) if periodo_actual in all_periodos else -1
             if idx > 0:
                 periodo_prev = all_periodos[idx - 1]
                 df_prev      = df_todas[df_todas["mes_año"] == periodo_prev]
@@ -184,14 +185,15 @@ def tabla_transacciones(df_full, df):
                 st.success("Transacción agregada.")
                 st.rerun()
 
-    # Sort once — reused by both edit and delete option builders below
     df_sorted = df_full.sort_values("fecha", ascending=False)
+    opciones = {}
+    opciones_del = {}
+    for _, row in df_sorted.iterrows():
+        label = _tx_label(row)
+        opciones[label] = row
+        opciones_del[label] = int(row["id"])
 
     with st.expander("✏️ Editar transacción"):
-        opciones = {
-            f"{row['id']} · {str(row['fecha'])[:10]} · {row['descripcion']}": row
-            for _, row in df_sorted.iterrows()
-        }
         seleccion = st.selectbox("Seleccionar transacción", list(opciones.keys()), index=None, key="edit_sel")
         if seleccion:
             row    = opciones[seleccion]
@@ -217,10 +219,6 @@ def tabla_transacciones(df_full, df):
                     st.rerun()
 
     with st.expander("🗑️ Eliminar transacciones"):
-        opciones_del = {
-            f"{row['id']} · {str(row['fecha'])[:10]} · {row['descripcion']}": int(row["id"])
-            for _, row in df_sorted.iterrows()
-        }
         seleccionadas = st.multiselect("Seleccionar transacciones a eliminar", list(opciones_del.keys()))
         if seleccionadas:
             st.warning(f"Se eliminarán {len(seleccionadas)} transacción(es). Esta acción no se puede deshacer.")
