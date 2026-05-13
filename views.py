@@ -11,7 +11,7 @@ from data import (cargar_catalogos, agregar_transaccion, actualizar_transaccion,
                   eliminar_transacciones, cargar_planes, cargar_cuotas,
                   crear_plan, marcar_cuota_pagada, cancelar_plan, actualizar_plan_campos)
 
-_CLASIFICACION_POSITIVA = set(CLASIFICACION_INGRESO)
+_CLASIFICACION_POSITIVA = set(CLASIFICACION_INGRESO)  # income types produce a positive monto
 
 # Columns searched by the free-text filter in the transactions table
 _SEARCH_COLS = ["descripcion", "categoria", "metodo_pago", "quien", "clasificacion"]

@@ -6,6 +6,8 @@ from config import COLORS, CHART_LAYOUT, CHART_LAYOUT_PIE, CLASIFICACION_INGRESO
 
 
 def _egresos(df):
+    # Both filters are required: "Ajuste de Gastos" rows are in CLASIFICACION_EGRESO
+    # but can carry positive amounts (reversals). monto < 0 keeps only actual outflows.
     return df[(df["clasificacion"].isin(CLASIFICACION_EGRESO)) & (df["monto"] < 0)]
 
 
