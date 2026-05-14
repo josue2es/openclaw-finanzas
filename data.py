@@ -60,6 +60,7 @@ def init_planes_tables():
     that the migration was already applied in a prior run, so we silently skip it.
     """
     conn = sqlite3.connect(str(DB_PATH))
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS planes_pago (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre        TEXT    NOT NULL,
