@@ -1,6 +1,6 @@
 from pathlib import Path
 
-DB_PATH = Path("/home/josue2es/.openclaw/workspace/finanzas.db")
+DB_PATH = Path("/home/hermes/finanzas/finanzas.db")
 
 # ── Transaction classifications ───────────────────────────────────────────────
 CLASIFICACION_INGRESO = ["Ingreso Recurrente", "Ingreso", "Ajuste de Ingresos"]
