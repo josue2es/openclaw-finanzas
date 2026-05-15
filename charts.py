@@ -138,8 +138,8 @@ def grafica_top_categorias(df):
         color="monto",
         color_continuous_scale=[[0, "#7f1d1d"], [1, COLORS["egreso"]]],
     )
-    fig.update_layout(**CHART_LAYOUT, coloraxis_showscale=False,
-                      yaxis=dict(categoryorder="total ascending", gridcolor=COLORS["border"]))
+    fig.update_layout(**CHART_LAYOUT, coloraxis_showscale=False)
+    fig.update_layout(yaxis=dict(categoryorder="total ascending", gridcolor=COLORS["border"]))
     fig.update_traces(marker_line_width=0,
                       text=top["monto"], texttemplate="$%{x:,.0f}",
                       textposition="outside")
