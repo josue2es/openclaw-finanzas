@@ -204,6 +204,7 @@ The core table. Each row is one financial entry.
 | `quien` | TEXT | Person (e.g. "Josue", "Daniela") |
 | `tipo_abono_id` | INTEGER FK | → `tipos_abono.id` |
 | `categoria_id` | INTEGER FK | → `categorias.id` |
+| `sheet_ref` | TEXT | Optional reference to the source spreadsheet row |
 
 `cargar_datos()` resolves FKs via JOIN and adds a computed column `mes_año` (`YYYY-MM`) derived from `fecha`.
 
@@ -218,18 +219,73 @@ The core table. Each row is one financial entry.
 | `Ingreso Recurrente` | positive |
 | `Ajuste de Ingresos` | positive |
 
+### `tipos_abono`
+
+Lookup table for payment methods.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | — |
+| `nombre` | TEXT | Display name (e.g. "Efectivo", "Visa Débito") |
+| `tipo` | TEXT | Broad category (e.g. `"efectivo"`, `"tarjeta"`) |
+| `alias` | TEXT | Short unique alias |
+| `activo` | INTEGER | `1` = visible in forms; `0` = hidden |
+
+### `categorias`
+
+Lookup table for expense/income categories.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | — |
+| `nombre` | TEXT | Category name |
+| `activo` | INTEGER | `1` = visible in forms; `0` = hidden |
+
 ### `planes_pago`
 
-| Column | Notes |
-|---|---|
-| `tipo` | `'plazo_fijo'` or `'recurrente'` |
-| `auto_pago` | `1` = cron registers payment automatically; `0` = sends reminder |
-| `activo` | `0` = cancelled (rows are never deleted) |
+One row per installment plan or recurring subscription.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | — |
+| `nombre` | TEXT | Plan name |
+| `monto_total` | REAL | Total amount (used for `plazo_fijo`; `0` for `recurrente`) |
+| `num_cuotas` | INTEGER | Number of payments (`0` for `recurrente`) |
+| `monto_cuota` | REAL | Amount per payment |
+| `dia_cobro` | INTEGER | Day-of-month the payment is due |
+| `fecha_inicio` | TEXT | ISO date of first payment |
+| `tipo_abono_id` | INTEGER FK | → `tipos_abono.id` |
+| `categoria_id` | INTEGER FK | → `categorias.id` |
+| `clasificacion` | TEXT | See classification values above |
+| `quien` | TEXT | Person this plan belongs to |
+| `tipo` | TEXT | `'plazo_fijo'` or `'recurrente'` |
+| `auto_pago` | INTEGER | `1` = cron registers payment automatically; `0` = manual |
+| `activo` | INTEGER | `0` = cancelled (rows are never deleted) |
 
 ### `cuotas_pago`
 
-One row per scheduled payment per plan. For `recurrente` plans: only one pending row exists at a time — when paid, the next month's row is auto-generated.
+One row per scheduled payment per plan.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | — |
+| `plan_id` | INTEGER FK | → `planes_pago.id` |
+| `num_cuota` | INTEGER | Payment number within the plan |
+| `fecha_programada` | TEXT | ISO date the payment is scheduled for |
+| `fecha_pago` | TEXT | ISO date the payment was made (`NULL` if unpaid) |
+| `transaccion_id` | INTEGER FK | → `transacciones.id` (set when paid) |
+
+For `recurrente` plans: only one pending row exists at a time — when paid, the next month's row is auto-generated.
 
 ### `ahorros`
 
-Manually maintained savings balances: `nombre`, `banco`, `tipo_cuenta`, `saldo`, `fecha_actualizacion`.
+Manually maintained savings account balances.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | — |
+| `nombre` | TEXT | Account name |
+| `banco` | TEXT | Bank name |
+| `tipo_cuenta` | TEXT | Account type (e.g. "Ahorro", "Corriente") |
+| `saldo` | REAL | Current balance |
+| `fecha_actualizacion` | TEXT | ISO date of last manual update |
