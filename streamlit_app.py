@@ -1,15 +1,13 @@
 """
 Dashboard de Finanzas Personales — entry point.
-Run with: streamlit run finanzas_dashboard.py
+Run with: streamlit run streamlit_app.py
 """
 
 import streamlit as st
 
-import os
-
 from config import CSS, COLORS, DB_PATH
 from auth import check_auth
-from data import cargar_datos, sidebar_filtros, aplicar_filtros, init_planes_tables
+from data import cargar_datos, sidebar_filtros, aplicar_filtros, init_planes_tables, db_mtime
 from charts import (
     grafica_metodo_pago,
     grafica_metodo_pago_tipo,
@@ -43,8 +41,7 @@ def main():
 
     # Pass mtime as a cache key: cargar_datos is @st.cache_data, so Streamlit only
     # re-queries SQLite when the file was modified since the last call.
-    db_mtime = os.path.getmtime(DB_PATH)
-    df_todas, ahorros = cargar_datos(db_mtime)
+    df_todas, ahorros = cargar_datos(db_mtime())
     periodos, quien, tipo = sidebar_filtros(df_todas)
     df = aplicar_filtros(df_todas, periodos, quien, tipo)
 
@@ -67,7 +64,7 @@ def main():
     ])
 
     with tab_resumen:
-        mostrar_kpis(df, ahorros, df_todas)
+        mostrar_kpis(df, ahorros, df_todas, quien, tipo)
         st.markdown("<br>", unsafe_allow_html=True)
 
         col_m1, col_m2 = st.columns(2)

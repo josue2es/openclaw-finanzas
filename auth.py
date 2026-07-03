@@ -1,13 +1,19 @@
+import hmac
 import logging
 import streamlit as st
 from config import CSS
 
-logging.basicConfig(
-    filename='/var/log/finanzas-auth.log',
+_LOG_CONFIG = dict(
     level=logging.WARNING,
     format='%(asctime)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
 )
+try:
+    logging.basicConfig(filename='/var/log/finanzas-auth.log', **_LOG_CONFIG)
+except OSError:
+    # Can't write to /var/log (e.g. non-root deploy) — fall back to stderr
+    # instead of crashing the whole app at import time.
+    logging.basicConfig(**_LOG_CONFIG)
 
 
 def _get_client_ip() -> str:
@@ -43,7 +49,9 @@ def check_auth() -> bool:
         password = st.text_input("Contraseña", type="password", key="pwd_input",
                                   placeholder="Ingresa tu contraseña")
         if st.button("Entrar →", width="stretch"):
-            if password == st.secrets["password"]:
+            # compare_digest is constant-time, so response timing leaks nothing
+            # about how many leading characters of the guess were correct.
+            if hmac.compare_digest(password.encode(), str(st.secrets["password"]).encode()):
                 st.session_state["authenticated"] = True
                 st.rerun()
             else:
