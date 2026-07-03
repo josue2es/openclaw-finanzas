@@ -8,20 +8,29 @@ import pandas as pd
 import streamlit as st
 
 from config import (DB_PATH, CLASIFICACION_INGRESO, CLASIFICACION_EGRESO,
-                    CLASIFICACION_AJUSTE, TIPO_RECURRENTE, TIPO_PLAZO_FIJO)
+                    CLASIFICACION_AJUSTE, TIPO_RECURRENTE, TIPO_PLAZO_FIJO, TIPO_OPCIONES)
 
 
-def _add_months(d, n):
+def _add_months(d, n, day=None):
     """Add n months to date d, clamping day to end of month when needed.
 
     Without clamping, adding 1 month to Jan 31 would produce Feb 31 — invalid.
     calendar.monthrange returns (weekday_of_1st, days_in_month), so [1] gives the cap.
+    Pass `day` to anchor to a fixed billing day instead of d.day — needed when d was
+    itself clamped (e.g. Feb 28 for a plan that bills on the 31st).
     """
     month = d.month + n
     year  = d.year + (month - 1) // 12
     month = ((month - 1) % 12) + 1
-    day   = min(d.day, calendar.monthrange(year, month)[1])
+    day   = min(day or d.day, calendar.monthrange(year, month)[1])
     return date(year, month, day)
+
+
+def db_mtime():
+    """Current mtime of the DB file — used as the cache key for @st.cache_data loaders
+    so they re-query after any write, including ones from external processes
+    (e.g. the auto-pago cron), not just writes made through this app."""
+    return os.path.getmtime(DB_PATH)
 
 
 @contextmanager
@@ -60,7 +69,8 @@ def init_planes_tables():
     that the migration was already applied in a prior run, so we silently skip it.
     """
     conn = sqlite3.connect(str(DB_PATH))
-    conn.executescript("""
+    try:
+        conn.executescript("""
         CREATE TABLE IF NOT EXISTS planes_pago (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre        TEXT    NOT NULL,
@@ -87,18 +97,19 @@ def init_planes_tables():
             FOREIGN KEY(plan_id)        REFERENCES planes_pago(id),
             FOREIGN KEY(transaccion_id) REFERENCES transacciones(id)
         );
-    """)
-    for sql in [
-        "ALTER TABLE planes_pago ADD COLUMN tipo TEXT DEFAULT 'plazo_fijo'",
-        "ALTER TABLE planes_pago ADD COLUMN auto_pago INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE transacciones DROP COLUMN periodo",
-    ]:
-        try:
-            conn.execute(sql)
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # already applied
-    conn.close()
+        """)
+        for sql in [
+            "ALTER TABLE planes_pago ADD COLUMN tipo TEXT DEFAULT 'plazo_fijo'",
+            "ALTER TABLE planes_pago ADD COLUMN auto_pago INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE transacciones DROP COLUMN periodo",
+        ]:
+            try:
+                conn.execute(sql)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # already applied
+    finally:
+        conn.close()
 
 
 def crear_plan(nombre, monto_total, num_cuotas, monto_cuota,
@@ -137,7 +148,7 @@ def crear_plan(nombre, monto_total, num_cuotas, monto_cuota,
 
 
 @st.cache_data
-def cargar_planes():
+def cargar_planes(db_mtime):  # db_mtime busts the cache after external writes (auto-pago cron)
     with _db_read() as conn:
         return pd.read_sql("""
             SELECT p.*,
@@ -155,7 +166,7 @@ def cargar_planes():
 
 
 @st.cache_data
-def cargar_cuotas():
+def cargar_cuotas(db_mtime):  # db_mtime busts the cache after external writes (auto-pago cron)
     """Return all unpaid cuotas from active plans, enriched with plan fields."""
     with _db_read() as conn:
         return pd.read_sql("""
@@ -192,7 +203,7 @@ def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
         descripcion = f"{plan_nombre} · {str(fecha_pago)[:7]}"
     else:
         descripcion = f"{plan_nombre} · Pago {num_cuota}/{num_cuotas}"
-    monto = abs(monto_cuota) if clasificacion == "Ingreso Recurrente" else -abs(monto_cuota)
+    monto = abs(monto_cuota) if clasificacion in CLASIFICACION_INGRESO else -abs(monto_cuota)
     with _db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -207,7 +218,14 @@ def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
             (str(fecha_pago), transaccion_id, cuota_id),
         )
         if plan_tipo == TIPO_RECURRENTE:
-            next_fecha = _add_months(date.fromisoformat(str(fecha_programada)[:10]), 1)
+            # Anchor the next cuota to the plan's dia_cobro instead of chaining from the
+            # previous (possibly clamped) date: a plan that bills on the 31st pays Feb 28,
+            # and must return to Mar 31 rather than drift to the 28th forever.
+            dia_cobro = cur.execute(
+                "SELECT dia_cobro FROM planes_pago WHERE id=?", (plan_id,)
+            ).fetchone()[0]
+            next_fecha = _add_months(date.fromisoformat(str(fecha_programada)[:10]), 1,
+                                     day=dia_cobro)
             cur.execute(
                 "INSERT INTO cuotas_pago (plan_id, num_cuota, fecha_programada) VALUES (?,?,?)",
                 (plan_id, num_cuota + 1, str(next_fecha)),
@@ -246,7 +264,10 @@ def cargar_datos(db_mtime):  # db_mtime is the file's mtime — Streamlit re-run
         ahorros = pd.read_sql("SELECT * FROM ahorros", conn)
 
     transacciones["fecha"]   = pd.to_datetime(transacciones["fecha"], errors="coerce")
-    transacciones["mes_año"] = transacciones["fecha"].dt.to_period("M").astype(str)
+    # where() blanks rows whose fecha failed to parse — otherwise astype(str) turns NaT
+    # into the literal string "NaT", which would appear as a bogus year/month filter option.
+    transacciones["mes_año"] = (transacciones["fecha"].dt.to_period("M").astype(str)
+                                .where(transacciones["fecha"].notna()))
     return transacciones, ahorros
 
 
@@ -282,7 +303,7 @@ def sidebar_filtros(df):
         quien_opciones = ["Todos"] + sorted(df["quien"].dropna().unique().tolist())
         quien_sel = st.selectbox("Persona", quien_opciones)
 
-        tipo_sel = st.radio("Tipo", ["Todos", "Ingresos", "Gastos", "Ajuste"])
+        tipo_sel = st.radio("Tipo", TIPO_OPCIONES)
 
         st.divider()
         if st.button("🔄 Actualizar datos", width="stretch"):

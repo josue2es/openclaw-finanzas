@@ -9,7 +9,8 @@ from config import (CHART_LAYOUT, CHART_LAYOUT_PIE, CLASIFICACION_INGRESO, CLASI
                     CLASIFICACIONES, CLASIFICACIONES_RECURRENTES)
 from data import (cargar_catalogos, agregar_transaccion, actualizar_transaccion,
                   eliminar_transacciones, cargar_planes, cargar_cuotas,
-                  crear_plan, marcar_cuota_pagada, cancelar_plan, actualizar_plan_campos)
+                  crear_plan, marcar_cuota_pagada, cancelar_plan, actualizar_plan_campos,
+                  aplicar_filtros, db_mtime)
 
 _CLASIFICACION_POSITIVA = set(CLASIFICACION_INGRESO)  # income types produce a positive monto
 
@@ -33,7 +34,7 @@ def _pago_label(r):
     return f"Pago {int(r['num_cuota'])}/{int(r['num_cuotas'])}"
 
 
-def mostrar_kpis(df, ahorros, df_todas=None):
+def mostrar_kpis(df, ahorros, df_todas=None, quien="Todos", tipo="Todos"):
     df_cash = df[df["metodo_pago"].isin(METODOS_EFECTIVO)]
     df_card = df[~df["metodo_pago"].isin(METODOS_EFECTIVO)]
 
@@ -53,7 +54,9 @@ def mostrar_kpis(df, ahorros, df_todas=None):
             idx = all_periodos.index(periodo_actual) if periodo_actual in all_periodos else -1
             if idx > 0:
                 periodo_prev = all_periodos[idx - 1]
-                df_prev      = df_todas[df_todas["mes_año"] == periodo_prev]
+                # Apply the same persona/tipo filters as the current period so the
+                # delta compares like against like (df is already filtered by them).
+                df_prev      = aplicar_filtros(df_todas, [periodo_prev], quien, tipo)
                 df_prev_cash = df_prev[df_prev["metodo_pago"].isin(METODOS_EFECTIVO)]
                 df_prev_card = df_prev[~df_prev["metodo_pago"].isin(METODOS_EFECTIVO)]
                 delta_ingresos = total_ingresos - df_prev_cash[df_prev_cash["monto"] > 0]["monto"].sum()
@@ -273,9 +276,10 @@ def seccion_ahorros(ahorros):
 
 
 def seccion_recurrentes():
-    planes  = cargar_planes()
+    mtime   = db_mtime()
+    planes  = cargar_planes(mtime)
     activos = planes[planes["activo"] == 1].copy()
-    cuotas  = cargar_cuotas()
+    cuotas  = cargar_cuotas(mtime)
     categorias, tipos_abono = cargar_catalogos()
 
     hoy = date.today()
