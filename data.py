@@ -1,8 +1,11 @@
 import calendar
 import os
 import sqlite3
+import subprocess
 from contextlib import contextmanager
 from datetime import date, datetime
+from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -31,6 +34,21 @@ def db_mtime():
     so they re-query after any write, including ones from external processes
     (e.g. the auto-pago cron), not just writes made through this app."""
     return os.path.getmtime(DB_PATH)
+
+
+@lru_cache(maxsize=1)
+def ultima_edicion_codigo():
+    """Date of the last git commit to the app's code, shown in the sidebar so it's
+    easy to tell which version is currently deployed."""
+    try:
+        salida = subprocess.check_output(
+            ["git", "log", "-1", "--format=%cd", "--date=format:%d/%m/%Y %H:%M"],
+            cwd=Path(__file__).resolve().parent,
+            stderr=subprocess.DEVNULL,
+        )
+        return salida.decode().strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        return None
 
 
 @contextmanager
@@ -312,6 +330,10 @@ def sidebar_filtros(df):
         if st.button("🚪 Cerrar sesión", width="stretch"):
             st.session_state["authenticated"] = False
             st.rerun()
+
+        ultima = ultima_edicion_codigo()
+        if ultima:
+            st.caption(f"Última edición: {ultima}")
 
     return periodo_sel, quien_sel, tipo_sel
 
