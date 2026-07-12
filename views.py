@@ -366,33 +366,39 @@ def seccion_recurrentes():
             cat_actual    = str(r["categoria"])   if r["categoria"]   else (cat_nombres[0]   if cat_nombres   else "")
             abono_actual  = str(r["metodo_pago"]) if r["metodo_pago"] else (abono_nombres[0] if abono_nombres else "")
 
+            ya_agregado = st.checkbox(
+                "📌 Pago ya agregado (registrado manualmente o por script)",
+                help="No crea una transacción nueva — solo avanza este pago a la siguiente fecha.",
+                key=f"reg_ya_agregado_{ck}",
+            )
+
             c1, c2 = st.columns(2)
             with c1:
                 fecha_pago = st.date_input("Fecha de pago", value=hoy, key=f"reg_fecha_{ck}")
                 monto_edit = st.number_input(
                     "Monto", value=abs(float(r["monto_cuota"])), min_value=0.01, step=0.01,
-                    key=f"reg_monto_{ck}",
+                    key=f"reg_monto_{ck}", disabled=ya_agregado,
                 )
                 _clas_val = str(r["clasificacion"]) if str(r["clasificacion"]) in CLASIFICACIONES_RECURRENTES else CLASIFICACIONES_RECURRENTES[0]
                 clas_edit = st.selectbox(
                     "Clasificación", CLASIFICACIONES_RECURRENTES,
                     index=CLASIFICACIONES_RECURRENTES.index(_clas_val),
-                    key=f"reg_clas_{ck}",
+                    key=f"reg_clas_{ck}", disabled=ya_agregado,
                 )
             with c2:
                 cat_edit = st.selectbox(
                     "Categoría", cat_nombres,
                     index=cat_nombres.index(cat_actual) if cat_actual in cat_nombres else 0,
-                    key=f"reg_cat_{ck}",
+                    key=f"reg_cat_{ck}", disabled=ya_agregado,
                 )
                 abono_edit = st.selectbox(
                     "Método de pago", abono_nombres,
                     index=abono_nombres.index(abono_actual) if abono_actual in abono_nombres else 0,
-                    key=f"reg_abono_{ck}",
+                    key=f"reg_abono_{ck}", disabled=ya_agregado,
                 )
                 quien_edit = st.text_input(
                     "Quién", value=str(r["quien"]) if r["quien"] else "",
-                    key=f"reg_quien_{ck}",
+                    key=f"reg_quien_{ck}", disabled=ya_agregado,
                 )
 
             plan_tipo = str(r.get("tipo", TIPO_PLAZO_FIJO))
@@ -401,7 +407,10 @@ def seccion_recurrentes():
                 if plan_tipo == TIPO_RECURRENTE else
                 "Actualiza el plan: todos los pagos restantes usarán estos valores."
             )
-            permanent = st.checkbox("💾 Guardar cambios como permanentes", help=help_perm, key=f"reg_perm_{ck}")
+            permanent = st.checkbox(
+                "💾 Guardar cambios como permanentes", help=help_perm,
+                key=f"reg_perm_{ck}", disabled=ya_agregado,
+            )
 
             if st.button("✅ Registrar pago", type="primary", key="reg_btn"):
                 marcar_cuota_pagada(
@@ -418,8 +427,9 @@ def seccion_recurrentes():
                     tipo_abono_id    = _lookup_id(tipos_abono, abono_edit),
                     clasificacion    = clas_edit,
                     quien            = quien_edit,
+                    crear_transaccion = not ya_agregado,
                 )
-                if permanent:
+                if permanent and not ya_agregado:
                     actualizar_plan_campos(
                         plan_id       = int(r["plan_id"]),
                         monto_cuota   = monto_edit,
@@ -428,7 +438,10 @@ def seccion_recurrentes():
                         clasificacion = clas_edit,
                         quien         = quien_edit,
                     )
-                st.success("Pago registrado — la transacción fue creada automáticamente.")
+                if ya_agregado:
+                    st.success("Pago marcado como ya agregado — avanzó a la siguiente fecha.")
+                else:
+                    st.success("Pago registrado — la transacción fue creada automáticamente.")
                 st.rerun()
 
     with st.expander("➕ Nuevo plan"):

@@ -206,13 +206,18 @@ def cargar_cuotas(db_mtime):  # db_mtime busts the cache after external writes (
 def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
                          num_cuota, num_cuotas, monto_cuota,
                          fecha_pago, fecha_programada,
-                         categoria_id, tipo_abono_id, clasificacion, quien):
-    """Create a transaction for the payment and link it back.
+                         categoria_id, tipo_abono_id, clasificacion, quien,
+                         crear_transaccion=True):
+    """Mark the cuota as paid and, by default, create its transaction.
 
     Signs the monto based on clasificacion: income plans (e.g. "Ingreso Recurrente")
     record a positive amount; expense plans record negative.  The cuota row is then
     stamped with the actual payment date and the new transaction's ID so we can trace
     back from the plan to the exact transaction that paid it.
+
+    crear_transaccion=False skips the INSERT — for payments the user already logged
+    manually or via an external script, so this only advances the cuota without
+    creating a duplicate transaction.
 
     For recurrente plans, after marking the cuota paid the next month's cuota is
     inserted here — keeping exactly one pending row alive per active recurrente plan.
@@ -224,13 +229,15 @@ def marcar_cuota_pagada(cuota_id, plan_id, plan_nombre, plan_tipo,
     monto = abs(monto_cuota) if clasificacion in CLASIFICACION_INGRESO else -abs(monto_cuota)
     with _db() as conn:
         cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO transacciones
-                (fecha, monto, clasificacion, descripcion, quien, categoria_id, tipo_abono_id)
-            VALUES (?,?,?,?,?,?,?)
-        """, (str(fecha_pago), monto, clasificacion,
-              descripcion, quien or "", categoria_id, tipo_abono_id))
-        transaccion_id = cur.lastrowid
+        transaccion_id = None
+        if crear_transaccion:
+            cur.execute("""
+                INSERT INTO transacciones
+                    (fecha, monto, clasificacion, descripcion, quien, categoria_id, tipo_abono_id)
+                VALUES (?,?,?,?,?,?,?)
+            """, (str(fecha_pago), monto, clasificacion,
+                  descripcion, quien or "", categoria_id, tipo_abono_id))
+            transaccion_id = cur.lastrowid
         cur.execute(
             "UPDATE cuotas_pago SET fecha_pago=?, transaccion_id=? WHERE id=?",
             (str(fecha_pago), transaccion_id, cuota_id),
